@@ -1,0 +1,6 @@
+import { getCurrentUser } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
+import { redirect } from "next/navigation";
+import Link from "next/link";
+import { money } from "@/lib/format";
+export default async function Orders(){const u=await getCurrentUser();if(!u)redirect('/auth/login');const orders=await prisma.order.findMany({where:{userId:u.id},orderBy:{createdAt:'desc'},include:{items:true}});return <main className="mx-auto max-w-5xl px-4 py-12 lg:px-6"><h1 className="text-4xl font-black">My orders</h1><div className="mt-8 space-y-3">{orders.length?orders.map(o=><Link key={o.id} href={`/orders/${o.id}`} className="flex flex-col gap-3 rounded-2xl border bg-white p-5 hover:shadow-md sm:flex-row sm:items-center sm:justify-between"><div><p className="font-black">{o.orderNumber}</p><p className="mt-1 text-sm text-slate-500">{o.items.length} items · {new Date(o.createdAt).toLocaleDateString()}</p></div><div className="flex items-center gap-4"><span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold">{o.status}</span><b>{money(o.totalAmount)}</b></div></Link>):<div className="rounded-3xl border border-dashed p-12 text-center text-slate-500">No orders yet. <Link className="font-bold text-slate-950" href="/products">Shop now</Link></div>}</div></main>}

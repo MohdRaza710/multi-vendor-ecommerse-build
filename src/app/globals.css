@@ -1,0 +1,21 @@
+@import "tailwindcss";
+:root {
+	--font-geist: Arial, sans-serif;
+}
+* {
+	box-sizing: border-box;
+}
+html {
+	scroll-behavior: smooth;
+}
+body {
+	font-family: var(--font-geist), Arial, sans-serif;
+}
+button,
+a {
+	-webkit-tap-highlight-color: transparent;
+}
+::selection {
+	background: #0f172a;
+	color: white;
+}

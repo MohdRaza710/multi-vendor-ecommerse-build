@@ -1,0 +1,4 @@
+import { prisma } from "@/lib/prisma";
+import { notFound } from "next/navigation";
+import ProductCard from "@/components/ProductCard";
+export default async function CategoryPage({params}:{params:Promise<{slug:string}>}){const {slug}=await params;const c=await prisma.category.findUnique({where:{slug},include:{products:{where:{status:'PUBLISHED'},include:{images:{where:{isPrimary:true},take:1},seller:{select:{businessName:true,slug:true}}}}}});if(!c)return notFound();return <main className="mx-auto max-w-7xl px-4 py-12 lg:px-6"><p className="text-sm font-bold uppercase tracking-widest text-slate-500">Category</p><h1 className="mt-2 text-4xl font-black">{c.name}</h1>{c.description&&<p className="mt-3 max-w-2xl text-slate-500">{c.description}</p>}<div className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">{c.products.map(p=><ProductCard key={p.id} product={p}/>)}</div></main>}
