@@ -221,8 +221,12 @@ export async function reactivateSeller(sellerId: string) {
 /**
  * Update seller order status.
  *
- * Keep this function if your existing seller order page
- * already uses it.
+ * Synchronizes:
+ * - SellerOrder status
+ * - Main Order status
+ * - Customer tracking timeline
+ * - Customer notification
+ * - Seller audit log
  */
 export async function updateSellerOrderStatus(formData: FormData) {
   const user = await getCurrentUser();
@@ -231,77 +235,442 @@ export async function updateSellerOrderStatus(formData: FormData) {
     throw new Error("FORBIDDEN");
   }
 
-  if (user.seller.status !== "APPROVED") {
-    throw new Error("SELLER_NOT_APPROVED");
+  const sellerOrderId = String(
+    formData.get("sellerOrderId") || ""
+  ).trim();
+
+  const status = String(
+    formData.get("status") || ""
+  ).trim();
+
+  if (!sellerOrderId) {
+    throw new Error("Seller order ID is required.");
   }
 
-  const rawSellerOrderId = formData.get("sellerOrderId");
-  const rawStatus = formData.get("status");
-
-  // Make absolutely sure we received strings
-  if (
-    typeof rawSellerOrderId !== "string" ||
-    !rawSellerOrderId.trim()
-  ) {
-    throw new Error("INVALID_SELLER_ORDER_ID");
-  }
-
-  if (typeof rawStatus !== "string") {
-    throw new Error("INVALID_STATUS");
-  }
-
-  const allowedStatuses = [
+  const validStatuses = [
     "PENDING",
     "CONFIRMED",
     "PROCESSING",
     "SHIPPED",
     "DELIVERED",
     "CANCELLED",
+    "REFUNDED",
   ] as const;
 
-  if (!allowedStatuses.includes(rawStatus as any)) {
-    throw new Error("INVALID_ORDER_STATUS");
+  if (!validStatuses.includes(status as any)) {
+    throw new Error("Invalid order status.");
   }
 
-  const sellerOrderId = rawSellerOrderId.trim();
+  const newStatus = status as
+    | "PENDING"
+    | "CONFIRMED"
+    | "PROCESSING"
+    | "SHIPPED"
+    | "DELIVERED"
+    | "CANCELLED"
+    | "REFUNDED";
 
-  // Make sure this order belongs to the logged-in seller
-  const sellerOrder = await prisma.sellerOrder.findUnique({
-    where: {
-      id: sellerOrderId,
-    },
-    select: {
-      id: true,
-      sellerId: true,
-      status: true,
-    },
+  const result = await prisma.$transaction(async (tx) => {
+    // --------------------------------------------------
+    // Find seller order
+    // --------------------------------------------------
+
+    const sellerOrder = await tx.sellerOrder.findUnique({
+      where: {
+        id: sellerOrderId,
+      },
+      include: {
+        order: {
+          select: {
+            id: true,
+            orderNumber: true,
+            userId: true,
+            status: true,
+          },
+        },
+      },
+    });
+
+    if (!sellerOrder) {
+      throw new Error("Seller order not found.");
+    }
+
+    // --------------------------------------------------
+    // Verify seller ownership
+    // --------------------------------------------------
+
+    if (sellerOrder.sellerId !== user.seller!.id) {
+      throw new Error("FORBIDDEN");
+    }
+
+    const previousStatus = sellerOrder.status;
+
+    // Don't create duplicate updates
+    if (previousStatus === newStatus) {
+      return {
+        orderId: sellerOrder.order.id,
+        changed: false,
+      };
+    }
+
+    // --------------------------------------------------
+    // Update SellerOrder
+    // --------------------------------------------------
+
+    await tx.sellerOrder.update({
+      where: {
+        id: sellerOrderId,
+      },
+      data: {
+        status: newStatus,
+      },
+    });
+
+    // --------------------------------------------------
+    // Get all seller orders for this customer order
+    // --------------------------------------------------
+
+    const allSellerOrders = await tx.sellerOrder.findMany({
+      where: {
+        orderId: sellerOrder.order.id,
+      },
+      select: {
+        id: true,
+        sellerId: true,
+        status: true,
+      },
+    });
+
+    const statuses = allSellerOrders.map(
+      (sellerOrder) => sellerOrder.status
+    );
+
+    // --------------------------------------------------
+    // Calculate main Order status
+    // --------------------------------------------------
+
+    let mainOrderStatus = sellerOrder.order.status;
+
+    /*
+     * ALL cancelled
+     */
+    if (
+      statuses.length > 0 &&
+      statuses.every(
+        (status) => status === "CANCELLED"
+      )
+    ) {
+      mainOrderStatus = "CANCELLED";
+    }
+
+    /*
+     * ALL refunded
+     */
+    else if (
+      statuses.length > 0 &&
+      statuses.every(
+        (status) => status === "REFUNDED"
+      )
+    ) {
+      mainOrderStatus = "REFUNDED";
+    }
+
+    /*
+     * ALL delivered
+     */
+    else if (
+      statuses.length > 0 &&
+      statuses.every(
+        (status) => status === "DELIVERED"
+      )
+    ) {
+      mainOrderStatus = "DELIVERED";
+    }
+
+    /*
+     * At least one shipped
+     */
+    else if (
+      statuses.some(
+        (status) => status === "SHIPPED"
+      )
+    ) {
+      mainOrderStatus = "SHIPPED";
+    }
+
+    /*
+     * At least one processing
+     */
+    else if (
+      statuses.some(
+        (status) => status === "PROCESSING"
+      )
+    ) {
+      mainOrderStatus = "PROCESSING";
+    }
+
+    /*
+     * At least one confirmed
+     */
+    else if (
+      statuses.some(
+        (status) => status === "CONFIRMED"
+      )
+    ) {
+      mainOrderStatus = "CONFIRMED";
+    }
+
+    /*
+     * Otherwise pending
+     */
+    else {
+      mainOrderStatus = "PENDING";
+    }
+
+    // --------------------------------------------------
+    // Update main Order if necessary
+    // --------------------------------------------------
+
+    if (mainOrderStatus !== sellerOrder.order.status) {
+      await tx.order.update({
+        where: {
+          id: sellerOrder.order.id,
+        },
+        data: {
+          status: mainOrderStatus,
+        },
+      });
+
+      // ------------------------------------------------
+      // Customer tracking timeline
+      // ------------------------------------------------
+
+      await tx.orderTimeline.create({
+        data: {
+          orderId: sellerOrder.order.id,
+          status: mainOrderStatus,
+          title: getSellerStatusTitle(
+            mainOrderStatus
+          ),
+          message: getSellerStatusMessage(
+            mainOrderStatus
+          ),
+        },
+      });
+
+      // ------------------------------------------------
+      // Customer notification
+      // ------------------------------------------------
+
+      await tx.notification.create({
+        data: {
+          userId: sellerOrder.order.userId,
+          type: getSellerNotificationType(
+            mainOrderStatus
+          ),
+          title: getSellerStatusTitle(
+            mainOrderStatus
+          ),
+          message:
+            `Your order ${sellerOrder.order.orderNumber} is now ${formatSellerStatus(
+              mainOrderStatus
+            )}.`,
+        },
+      });
+    }
+
+    // --------------------------------------------------
+    // Create timeline event for seller-specific update
+    // --------------------------------------------------
+
+    await tx.orderTimeline.create({
+      data: {
+        orderId: sellerOrder.order.id,
+        status: newStatus,
+        title: `Seller order ${formatSellerStatus(
+          newStatus
+        )}`,
+        message: `A seller has updated your order to ${formatSellerStatus(
+          newStatus
+        )}.`,
+      },
+    });
+
+    // --------------------------------------------------
+    // Customer notification for seller update
+    // --------------------------------------------------
+
+    await tx.notification.create({
+      data: {
+        userId: sellerOrder.order.userId,
+        type: getSellerNotificationType(newStatus),
+        title: getSellerStatusTitle(newStatus),
+        message:
+          `Your order ${sellerOrder.order.orderNumber} has been updated to ${formatSellerStatus(
+            newStatus
+          )}.`,
+      },
+    });
+
+    // --------------------------------------------------
+    // Seller audit log
+    // --------------------------------------------------
+
+    await tx.auditLog.create({
+      data: {
+        userId: user.id,
+        action: "UPDATE_SELLER_ORDER_STATUS",
+        entityType: "SELLER_ORDER",
+        entityId: sellerOrderId,
+        metadata: {
+          previousStatus,
+          newStatus,
+          orderId: sellerOrder.order.id,
+          sellerId: user.seller!.id,
+        },
+      },
+    });
+
+    return {
+      orderId: sellerOrder.order.id,
+      changed: true,
+      previousStatus,
+      newStatus,
+      mainOrderStatus,
+    };
   });
 
-  if (!sellerOrder) {
-    throw new Error("SELLER_ORDER_NOT_FOUND");
+  // --------------------------------------------------
+  // Revalidate affected pages
+  // --------------------------------------------------
+
+  revalidatePath(`/seller/orders/${sellerOrderId}`);
+  revalidatePath(`/seller/orders`); revalidatePath("/seller/dashboard");
+  revalidatePath(`/orders/${result.orderId}`);
+  revalidatePath(`/admin/orders/${result.orderId}`);
+
+  return {
+    success: true,
+    ...result,
+  };
+}
+
+
+function formatSellerStatus(
+  status:
+    | "PENDING"
+    | "CONFIRMED"
+    | "PROCESSING"
+    | "SHIPPED"
+    | "DELIVERED"
+    | "CANCELLED"
+    | "REFUNDED"
+) {
+  return status
+    .toLowerCase()
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (char) =>
+      char.toUpperCase()
+    );
+}
+
+function getSellerStatusTitle(
+  status:
+    | "PENDING"
+    | "CONFIRMED"
+    | "PROCESSING"
+    | "SHIPPED"
+    | "DELIVERED"
+    | "CANCELLED"
+    | "REFUNDED"
+) {
+  switch (status) {
+    case "PENDING":
+      return "Order pending";
+
+    case "CONFIRMED":
+      return "Order confirmed";
+
+    case "PROCESSING":
+      return "Order processing";
+
+    case "SHIPPED":
+      return "Order shipped";
+
+    case "DELIVERED":
+      return "Order delivered";
+
+    case "CANCELLED":
+      return "Order cancelled";
+
+    case "REFUNDED":
+      return "Order refunded";
+
+    default:
+      return "Order status updated";
   }
+}
 
-  if (sellerOrder.sellerId !== user.seller.id) {
-    throw new Error("FORBIDDEN");
+function getSellerStatusMessage(
+  status:
+    | "PENDING"
+    | "CONFIRMED"
+    | "PROCESSING"
+    | "SHIPPED"
+    | "DELIVERED"
+    | "CANCELLED"
+    | "REFUNDED"
+) {
+  switch (status) {
+    case "PENDING":
+      return "Your order is waiting for confirmation.";
+
+    case "CONFIRMED":
+      return "Your order has been confirmed by the seller.";
+
+    case "PROCESSING":
+      return "Your order is currently being prepared.";
+
+    case "SHIPPED":
+      return "Your order has been shipped.";
+
+    case "DELIVERED":
+      return "Your order has been delivered.";
+
+    case "CANCELLED":
+      return "Your order has been cancelled.";
+
+    case "REFUNDED":
+      return "Your order has been refunded.";
+
+    default:
+      return "Your order status has been updated.";
   }
+}
 
-  await prisma.sellerOrder.update({
-    where: {
-      id: sellerOrderId,
-    },
-    data: {
-      status: rawStatus as
-        | "PENDING"
-        | "CONFIRMED"
-        | "PROCESSING"
-        | "SHIPPED"
-        | "DELIVERED"
-        | "CANCELLED",
-    },
-  });
+function getSellerNotificationType(
+  status:
+    | "PENDING"
+    | "CONFIRMED"
+    | "PROCESSING"
+    | "SHIPPED"
+    | "DELIVERED"
+    | "CANCELLED"
+    | "REFUNDED"
+) {
+  switch (status) {
+    case "CONFIRMED":
+      return "CONFIRMED" as const;
 
-  revalidatePath("/seller/orders");
-  revalidatePath("/seller/dashboard");
+    case "SHIPPED":
+      return "SHIPPED" as const;
+
+    case "DELIVERED":
+      return "DELIVERED" as const;
+
+    default:
+      return "ORDER" as const;
+  }
 }
 
 export async function updateStore(formData: FormData) {

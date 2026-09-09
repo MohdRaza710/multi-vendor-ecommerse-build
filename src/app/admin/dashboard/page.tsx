@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { money } from "@/lib/format";
+import { MessageSquareText } from "lucide-react";
 
 export default async function AdminDashboard() {
     const user = await getCurrentUser();
@@ -250,6 +251,30 @@ export default async function AdminDashboard() {
                         description="View and manage customer accounts."
                         href="/admin/users"
                     />
+                    <Link
+                        href="/admin/seller-reviews"
+                        className="group rounded-2xl border bg-white p-5 transition hover:-translate-y-1 hover:shadow-lg"
+                    >
+                        <div className="flex items-center justify-between">
+                            <div>
+                                <h3 className="font-semibold">
+                                    Seller Reviews
+                                </h3>
+
+                                <p className="mt-1 text-sm text-black/50">
+                                    Moderate and manage seller reviews
+                                </p>
+                            </div>
+
+                            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-black text-white">
+                                <MessageSquareText className="h-5 w-5" />
+                            </div>
+                        </div>
+
+                        <div className="mt-4 text-sm font-medium">
+                            Manage reviews →
+                        </div>
+                    </Link>
                 </div>
             </section>
 
