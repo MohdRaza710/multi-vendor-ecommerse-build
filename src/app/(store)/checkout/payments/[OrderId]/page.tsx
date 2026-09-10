@@ -1,199 +1,265 @@
+"use client";
+
 import Link from "next/link";
-import { redirect } from "next/navigation";
+import { use, useEffect, useState, useTransition } from "react";  // add `use`
+import { useRouter } from "next/navigation";
 
-import { processMockPayment } from "@/actions/payment";
-import { getCurrentUser } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
-import { money } from "@/lib/format";
 
-type PaymentPageProps = {
-    params: Promise<{
-        orderId: string;
-    }>;
-};
+interface OrderItem {
+    id: string;
+    productName: string;
+    sku: string;
+    quantity: number;
+    unitPrice: number;
+    totalPrice: number;
+}
 
-export default async function PaymentPage({
+interface SellerGroup {
+    id: string;
+    seller: { businessName: string };
+}
+
+interface Order {
+    id: string;
+    orderNumber: string;
+    totalAmount: number;
+    currency: string;
+    userId: string;
+    items: OrderItem[];
+    sellerGroups: SellerGroup[];
+    payment: { status: string } | null;
+}
+
+function money(amount: number | string) {
+    return `$${Number(amount).toFixed(2)}`;
+}
+
+export default function PaymentPage({
     params,
-}: PaymentPageProps) {
-    console.log("RAW PARAMS:", await params);
+}: {
+    params: Promise<{ orderId: string }>;  // change to Promise
+}) {
+    const { orderId } = use(params);  // unwrap with use()
+    const router = useRouter();
+    const [order, setOrder] = useState<Order | null>(null);
+    const [loading, setLoading] = useState(true);
+    const [enteredAmount, setEnteredAmount] = useState("");
+    const [error, setError] = useState("");
+    const [showSuccess, setShowSuccess] = useState(false);
+    const [isPending, startTransition] = useTransition();
 
-    const { orderId } = await params;
+    useEffect(() => {
+        fetch(`/api/orders/${orderId}/payment-info`)
+            .then(async (r) => {
+                const text = await r.text();
+                return text ? JSON.parse(text) : {};
+            })
+            .then((data) => {
+                if (data.error) {
+                    router.replace("/orders");
+                } else {
+                    setOrder(data);
+                }
+            })
+            .catch((err) => {
+                console.error("Failed to load payment info:", err);
+                router.replace("/orders");
+            })
+            .finally(() => setLoading(false));
+    }, [orderId, router]);
 
-    console.log("ORDER ID:", orderId);
+    function handlePay() {
+        setError("");
+        if (!order) return;
 
-    // ...
+        const entered = parseFloat(enteredAmount);
+        const required = Number(order.totalAmount);
 
-    if (!user) {
-        redirect("/auth/login");
+        if (isNaN(entered) || entered <= 0) {
+            setError("Please enter a valid amount.");
+            return;
+        }
+
+        if (Math.abs(entered - required) > 0.001) {
+            setError(
+                `Payment declined. You entered ${money(entered)} but the order total is ${money(required)}. Please enter the exact amount.`
+            );
+            return;
+        }
+
+        startTransition(async () => {
+            try {
+                const res = await fetch(`/api/orders/${order.id}/confirm-payment`, {
+                    method: "POST",
+                });
+
+                const text = await res.text();
+                const data = text ? JSON.parse(text) : {};
+
+                if (data.success) {
+                    setShowSuccess(true);
+                } else {
+                    setError(data.error ?? "Payment failed. Please try again.");
+                }
+            } catch (err) {
+                console.error(err);
+                setError("Something went wrong. Please try again.");
+            }
+        });
     }
 
-    const order = await prisma.order.findFirst({
-        where: {
-            id: orderId,
-            userId: user.id,
-        },
-        include: {
-            payment: true,
-            items: {
-                include: {
-                    product: {
-                        select: {
-                            name: true,
-                        },
-                    },
-                },
-            },
-        },
-    });
-
-    if (!order) {
-        redirect("/orders");
+    if (loading) {
+        return (
+            <main className="mx-auto max-w-2xl px-4 py-24 text-center">
+                <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-slate-200 border-t-slate-950" />
+                <p className="mt-4 text-slate-500">Loading payment details…</p>
+            </main>
+        );
     }
 
-    if (!order.payment) {
-        redirect(`/orders/${order.id}`);
-    }
-
-    if (order.payment.status === "PAID") {
-        redirect(`/orders/${order.id}`);
-    }
-
-    const totalAmount = Number(order.totalAmount);
+    if (!order) return null;
 
     return (
         <main className="mx-auto max-w-2xl px-4 py-12 lg:px-6">
-            {/* Header */}
-            <div className="mb-8 text-center">
-                <p className="mb-2 text-sm font-semibold uppercase tracking-[0.2em] text-slate-500">
-                    Payment
-                </p>
-
-                <h1 className="text-3xl font-bold tracking-tight text-slate-950 sm:text-4xl">
-                    Complete your payment
-                </h1>
-
-                <p className="mx-auto mt-3 max-w-lg text-sm leading-6 text-slate-600">
-                    Enter the exact amount shown below to confirm your order.
-                </p>
-            </div>
-
-            {/* Payment Card */}
-            <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-                {/* Order Summary Header */}
-                <div className="bg-slate-950 p-7 text-white">
-                    <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
-                        <div>
-                            <p className="text-xs font-medium uppercase tracking-wider text-slate-400">
-                                Order number
-                            </p>
-
-                            <p className="mt-1 text-lg font-semibold">
-                                {order.orderNumber}
-                            </p>
+            {/* Success popup */}
+            {showSuccess && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+                    <div className="mx-4 w-full max-w-sm rounded-3xl bg-white p-8 text-center shadow-2xl">
+                        <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-green-100 text-4xl">
+                            ✅
                         </div>
-
-                        <span className="inline-flex w-fit rounded-full border border-amber-400/30 bg-amber-400/10 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-amber-300">
-                            Payment Pending
-                        </span>
-                    </div>
-
-                    <div className="mt-7 border-t border-white/10 pt-6">
-                        <p className="text-sm text-slate-400">
-                            Amount to pay
+                        <h2 className="mt-5 text-2xl font-black text-slate-950">
+                            Payment successful!
+                        </h2>
+                        <p className="mt-2 text-slate-500">
+                            Your order{" "}
+                            <span className="font-mono font-semibold text-slate-800">
+                                {order.orderNumber}
+                            </span>{" "}
+                            has been confirmed.
                         </p>
-
-                        <p className="mt-1 text-4xl font-bold tracking-tight">
-                            {money(totalAmount)}
+                        <p className="mt-1 text-2xl font-black text-green-600">
+                            {money(order.totalAmount)}
                         </p>
-
-                        <p className="mt-2 text-sm text-slate-400">
-                            Currency: {order.currency}
-                        </p>
+                        <button
+                            onClick={() => router.push(`/orders/${order.id}`)}
+                            className="mt-6 w-full rounded-xl bg-slate-950 py-3 font-bold text-white transition hover:bg-slate-800"
+                        >
+                            View order
+                        </button>
                     </div>
                 </div>
+            )}
 
-                {/* Payment Form */}
-                <div className="p-7">
-                    {/* Exact Amount Notice */}
-                    <div className="rounded-2xl border border-blue-200 bg-blue-50 p-5">
-                        <p className="font-semibold text-blue-950">
-                            Enter the exact order amount
-                        </p>
+            <p className="text-sm font-bold uppercase tracking-widest text-slate-500">
+                Payment
+            </p>
+            <h1 className="mt-2 text-4xl font-black tracking-tight text-slate-950">
+                Complete payment
+            </h1>
+            <p className="mt-2 text-slate-500">
+                Order{" "}
+                <span className="font-mono font-semibold text-slate-800">
+                    {order.orderNumber}
+                </span>
+            </p>
 
-                        <p className="mt-1 text-sm leading-6 text-blue-800">
-                            To complete this mock payment, enter exactly:
-                        </p>
-
-                        <p className="mt-3 text-2xl font-bold text-blue-950">
-                            {money(totalAmount)}
-                        </p>
-                    </div>
-
-                    <form action={processMockPayment} className="mt-6 space-y-5">
-                        {/* Order ID */}
-                        <input
-                            type="hidden"
-                            name="orderId"
-                            value={order.id}
-                        />
-
-                        <div>
-                            <label
-                                htmlFor="amount"
-                                className="mb-2 block text-sm font-semibold text-slate-900"
-                            >
-                                Payment amount
-                            </label>
-
-                            <div className="relative">
-                                <input
-                                    id="amount"
-                                    name="amount"
-                                    type="number"
-                                    step="0.01"
-                                    min="0"
-                                    placeholder="0.00"
-                                    required
-                                    className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3.5 text-lg font-medium text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-slate-950 focus:ring-4 focus:ring-slate-950/10"
-                                />
+            {/* Order summary */}
+            <section className="mt-8 rounded-2xl border bg-white p-6">
+                <h2 className="font-bold text-slate-950">Order summary</h2>
+                <ul className="mt-4 divide-y">
+                    {order.items.map((item) => (
+                        <li
+                            key={item.id}
+                            className="flex justify-between py-3 text-sm"
+                        >
+                            <div>
+                                <p className="font-medium text-slate-900">
+                                    {item.productName}
+                                </p>
+                                <p className="text-xs text-slate-500">
+                                    SKU: {item.sku} · Qty: {item.quantity}
+                                </p>
                             </div>
-
-                            <p className="mt-2 text-xs leading-5 text-slate-500">
-                                The amount must exactly match the order total.
-                            </p>
-                        </div>
-
-                        <button
-                            type="submit"
-                            className="w-full rounded-2xl bg-slate-950 px-5 py-3.5 text-sm font-semibold text-white transition hover:bg-slate-800 active:scale-[0.99]"
-                        >
-                            Confirm Payment
-                        </button>
-                    </form>
-
-                    {/* Mock Payment Information */}
-                    <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-5">
-                        <p className="text-sm font-semibold text-slate-900">
-                            Mock payment
-                        </p>
-
-                        <p className="mt-1 text-sm leading-6 text-slate-600">
-                            This is a development payment system. No credit card
-                            or external payment provider is required.
-                        </p>
-                    </div>
-
-                    {/* Back to Order */}
-                    <div className="mt-6 text-center">
-                        <Link
-                            href={`/orders/${order.id}`}
-                            className="text-sm font-semibold text-slate-600 transition hover:text-slate-950"
-                        >
-                            ← View order
-                        </Link>
-                    </div>
+                            <span className="font-semibold text-slate-800">
+                                {money(item.totalPrice)}
+                            </span>
+                        </li>
+                    ))}
+                </ul>
+                <div className="mt-4 flex justify-between border-t pt-4 text-lg font-black text-slate-950">
+                    <span>Total</span>
+                    <span>{money(order.totalAmount)}</span>
                 </div>
             </section>
+
+            {/* Sellers */}
+            {order.sellerGroups.length > 0 && (
+                <section className="mt-4 rounded-2xl border bg-white p-6">
+                    <h2 className="font-bold text-slate-950">Fulfilled by</h2>
+                    <ul className="mt-3 space-y-1 text-sm text-slate-600">
+                        {order.sellerGroups.map((g) => (
+                            <li key={g.id}>· {g.seller.businessName}</li>
+                        ))}
+                    </ul>
+                </section>
+            )}
+
+            {/* Payment input */}
+            <section className="mt-6 rounded-2xl bg-slate-950 p-6 text-white">
+                <h2 className="font-bold">Enter payment amount</h2>
+                <p className="mt-1 text-sm text-slate-400">
+                    Enter the exact order total to confirm your payment.
+                </p>
+
+                <div className="mt-5">
+                    <label className="text-xs font-semibold uppercase tracking-widest text-slate-400">
+                        Amount (USD)
+                    </label>
+                    <div className="mt-2 flex items-center rounded-xl border border-slate-700 bg-slate-800 px-4 py-3">
+                        <span className="mr-2 text-lg font-bold text-slate-400">
+                            $
+                        </span>
+                        <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            placeholder={Number(order.totalAmount).toFixed(2)}
+                            value={enteredAmount}
+                            onChange={(e) => {
+                                setEnteredAmount(e.target.value);
+                                setError("");
+                            }}
+                            className="flex-1 bg-transparent text-lg font-mono text-white outline-none placeholder:text-slate-600"
+                        />
+                    </div>
+                </div>
+
+                {error && (
+                    <div className="mt-4 rounded-xl border border-red-500/30 bg-red-500/10 p-4">
+                        <p className="text-sm font-semibold text-red-400">
+                            ❌ {error}
+                        </p>
+                    </div>
+                )}
+
+                <button
+                    onClick={handlePay}
+                    disabled={isPending || !enteredAmount}
+                    className="mt-6 w-full rounded-xl bg-white py-3 font-bold text-slate-950 transition hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                    {isPending ? "Processing…" : `Pay ${money(order.totalAmount)}`}
+                </button>
+            </section>
+
+            <p className="mt-4 text-center text-sm text-slate-400">
+                <Link
+                    href="/orders"
+                    className="underline underline-offset-2 hover:text-slate-300"
+                >
+                    Cancel and view orders
+                </Link>
+            </p>
         </main>
     );
 }

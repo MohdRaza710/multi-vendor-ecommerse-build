@@ -484,3 +484,49 @@ export async function placeOrder() {
 
 redirect(`/checkout/payments/${order.id}`);
 }
+
+export async function confirmMockPayment(formData: FormData) {
+  const user = await getCurrentUser();
+  if (!user) redirect("/auth/login");
+
+  const orderId = String(formData.get("orderId") ?? "");
+  if (!orderId) throw new Error("Order ID is required.");
+
+  const order = await prisma.order.findUnique({
+    where: { id: orderId },
+    include: { payment: true },
+  });
+
+  if (!order) throw new Error("Order not found.");
+  if (order.userId !== user.id) throw new Error("Unauthorized.");
+
+  // Update or create payment record as PAID
+  if (order.payment) {
+    await prisma.payment.update({
+      where: { id: order.payment.id },
+      data: {
+        status: "PAID",
+        paidAt: new Date(),
+      },
+    });
+  } else {
+    await prisma.payment.create({
+      data: {
+        orderId: order.id,
+        provider: "MOCK",
+        status: "PAID",
+        amount: order.totalAmount,
+        currency: order.currency,
+        paidAt: new Date(),
+      },
+    });
+  }
+
+  // Update order status to CONFIRMED
+  await prisma.order.update({
+    where: { id: order.id },
+    data: { status: "CONFIRMED" },
+  });
+
+  redirect(`/orders/${order.id}`);
+}
