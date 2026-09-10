@@ -221,12 +221,14 @@ export async function reactivateSeller(sellerId: string) {
 /**
  * Update seller order status.
  *
- * Synchronizes:
- * - SellerOrder status
- * - Main Order status
- * - Customer tracking timeline
- * - Customer notification
- * - Seller audit log
+ * Rules:
+ * - Seller must own the SellerOrder.
+ * - Payment must be PAID before seller fulfillment can begin.
+ * - Seller cannot move a PENDING order directly to PROCESSING/SHIPPED/DELIVERED.
+ * - Main Order status is calculated from all SellerOrders.
+ * - Main Order becomes DELIVERED only when ALL SellerOrders are DELIVERED.
+ * - Customer timeline and notifications are updated.
+ * - Seller audit log is created.
  */
 export async function updateSellerOrderStatus(formData: FormData) {
   const user = await getCurrentUser();
@@ -236,11 +238,11 @@ export async function updateSellerOrderStatus(formData: FormData) {
   }
 
   const sellerOrderId = String(
-    formData.get("sellerOrderId") || ""
+    formData.get("sellerOrderId") || "",
   ).trim();
 
   const status = String(
-    formData.get("status") || ""
+    formData.get("status") || "",
   ).trim();
 
   if (!sellerOrderId) {
@@ -286,6 +288,14 @@ export async function updateSellerOrderStatus(formData: FormData) {
             orderNumber: true,
             userId: true,
             status: true,
+            payment: {
+              select: {
+                id: true,
+                status: true,
+                amount: true,
+                currency: true,
+              },
+            },
           },
         },
       },
@@ -305,12 +315,82 @@ export async function updateSellerOrderStatus(formData: FormData) {
 
     const previousStatus = sellerOrder.status;
 
-    // Don't create duplicate updates
+    // --------------------------------------------------
+    // Nothing to change
+    // --------------------------------------------------
+
     if (previousStatus === newStatus) {
       return {
         orderId: sellerOrder.order.id,
         changed: false,
+        previousStatus,
+        newStatus,
+        mainOrderStatus: sellerOrder.order.status,
       };
+    }
+
+    // --------------------------------------------------
+    // Payment validation
+    // --------------------------------------------------
+
+    const paymentStatus = sellerOrder.order.payment?.status;
+
+    if (!sellerOrder.order.payment) {
+      throw new Error(
+        "Payment record not found for this order.",
+      );
+    }
+
+    /*
+     * A seller cannot fulfill an unpaid order.
+     *
+     * Allowed while unpaid:
+     * PENDING → CANCELLED
+     *
+     * Not allowed:
+     * PENDING → CONFIRMED
+     * PENDING → PROCESSING
+     * PENDING → SHIPPED
+     * PENDING → DELIVERED
+     */
+
+    const fulfillmentStatuses = [
+      "CONFIRMED",
+      "PROCESSING",
+      "SHIPPED",
+      "DELIVERED",
+    ] as const;
+
+    if (
+      paymentStatus !== "PAID" &&
+      fulfillmentStatuses.includes(newStatus as any)
+    ) {
+      throw new Error(
+        "This order cannot be fulfilled because the payment has not been completed.",
+      );
+    }
+
+    // --------------------------------------------------
+    // Prevent invalid status jumps
+    // --------------------------------------------------
+
+    const allowedTransitions: Record<
+      typeof previousStatus,
+      readonly string[]
+    > = {
+      PENDING: ["CONFIRMED", "CANCELLED", "REFUNDED"],
+      CONFIRMED: ["PROCESSING", "CANCELLED", "REFUNDED"],
+      PROCESSING: ["SHIPPED", "CANCELLED", "REFUNDED"],
+      SHIPPED: ["DELIVERED", "CANCELLED", "REFUNDED"],
+      DELIVERED: [],
+      CANCELLED: [],
+      REFUNDED: [],
+    };
+
+    if (!allowedTransitions[previousStatus].includes(newStatus)) {
+      throw new Error(
+        `Invalid status transition: ${previousStatus} → ${newStatus}.`,
+      );
     }
 
     // --------------------------------------------------
@@ -327,7 +407,7 @@ export async function updateSellerOrderStatus(formData: FormData) {
     });
 
     // --------------------------------------------------
-    // Get all seller orders for this customer order
+    // Get all seller orders for this main order
     // --------------------------------------------------
 
     const allSellerOrders = await tx.sellerOrder.findMany({
@@ -341,8 +421,8 @@ export async function updateSellerOrderStatus(formData: FormData) {
       },
     });
 
-    const statuses = allSellerOrders.map(
-      (sellerOrder) => sellerOrder.status
+    const sellerStatuses = allSellerOrders.map(
+      (item) => item.status,
     );
 
     // --------------------------------------------------
@@ -352,12 +432,25 @@ export async function updateSellerOrderStatus(formData: FormData) {
     let mainOrderStatus = sellerOrder.order.status;
 
     /*
+     * IMPORTANT:
+     *
+     * Payment is the first requirement.
+     *
+     * If payment is not PAID, the main order can NEVER
+     * become CONFIRMED / PROCESSING / SHIPPED / DELIVERED.
+     */
+
+    if (paymentStatus !== "PAID") {
+      mainOrderStatus = "PENDING";
+    }
+
+    /*
      * ALL cancelled
      */
-    if (
-      statuses.length > 0 &&
-      statuses.every(
-        (status) => status === "CANCELLED"
+    else if (
+      sellerStatuses.length > 0 &&
+      sellerStatuses.every(
+        (itemStatus) => itemStatus === "CANCELLED",
       )
     ) {
       mainOrderStatus = "CANCELLED";
@@ -367,9 +460,9 @@ export async function updateSellerOrderStatus(formData: FormData) {
      * ALL refunded
      */
     else if (
-      statuses.length > 0 &&
-      statuses.every(
-        (status) => status === "REFUNDED"
+      sellerStatuses.length > 0 &&
+      sellerStatuses.every(
+        (itemStatus) => itemStatus === "REFUNDED",
       )
     ) {
       mainOrderStatus = "REFUNDED";
@@ -377,44 +470,47 @@ export async function updateSellerOrderStatus(formData: FormData) {
 
     /*
      * ALL delivered
+     *
+     * This is the ONLY condition that allows the
+     * main order to become DELIVERED.
      */
     else if (
-      statuses.length > 0 &&
-      statuses.every(
-        (status) => status === "DELIVERED"
+      sellerStatuses.length > 0 &&
+      sellerStatuses.every(
+        (itemStatus) => itemStatus === "DELIVERED",
       )
     ) {
       mainOrderStatus = "DELIVERED";
     }
 
     /*
-     * At least one shipped
+     * At least one seller has shipped
      */
     else if (
-      statuses.some(
-        (status) => status === "SHIPPED"
+      sellerStatuses.some(
+        (itemStatus) => itemStatus === "SHIPPED",
       )
     ) {
       mainOrderStatus = "SHIPPED";
     }
 
     /*
-     * At least one processing
+     * At least one seller is processing
      */
     else if (
-      statuses.some(
-        (status) => status === "PROCESSING"
+      sellerStatuses.some(
+        (itemStatus) => itemStatus === "PROCESSING",
       )
     ) {
       mainOrderStatus = "PROCESSING";
     }
 
     /*
-     * At least one confirmed
+     * At least one seller is confirmed
      */
     else if (
-      statuses.some(
-        (status) => status === "CONFIRMED"
+      sellerStatuses.some(
+        (itemStatus) => itemStatus === "CONFIRMED",
       )
     ) {
       mainOrderStatus = "CONFIRMED";
@@ -428,7 +524,7 @@ export async function updateSellerOrderStatus(formData: FormData) {
     }
 
     // --------------------------------------------------
-    // Update main Order if necessary
+    // Update main Order
     // --------------------------------------------------
 
     if (mainOrderStatus !== sellerOrder.order.status) {
@@ -449,12 +545,8 @@ export async function updateSellerOrderStatus(formData: FormData) {
         data: {
           orderId: sellerOrder.order.id,
           status: mainOrderStatus,
-          title: getSellerStatusTitle(
-            mainOrderStatus
-          ),
-          message: getSellerStatusMessage(
-            mainOrderStatus
-          ),
+          title: getSellerStatusTitle(mainOrderStatus),
+          message: getSellerStatusMessage(mainOrderStatus),
         },
       });
 
@@ -465,34 +557,29 @@ export async function updateSellerOrderStatus(formData: FormData) {
       await tx.notification.create({
         data: {
           userId: sellerOrder.order.userId,
-          type: getSellerNotificationType(
-            mainOrderStatus
-          ),
-          title: getSellerStatusTitle(
-            mainOrderStatus
-          ),
+          type: getSellerNotificationType(mainOrderStatus),
+          title: getSellerStatusTitle(mainOrderStatus),
           message:
             `Your order ${sellerOrder.order.orderNumber} is now ${formatSellerStatus(
-              mainOrderStatus
+              mainOrderStatus,
             )}.`,
         },
       });
     }
 
     // --------------------------------------------------
-    // Create timeline event for seller-specific update
+    // Seller-specific timeline event
     // --------------------------------------------------
 
     await tx.orderTimeline.create({
       data: {
         orderId: sellerOrder.order.id,
         status: newStatus,
-        title: `Seller order ${formatSellerStatus(
-          newStatus
-        )}`,
-        message: `A seller has updated your order to ${formatSellerStatus(
-          newStatus
-        )}.`,
+        title: `Seller order ${formatSellerStatus(newStatus)}`,
+        message:
+          `A seller has updated your order to ${formatSellerStatus(
+            newStatus,
+          )}.`,
       },
     });
 
@@ -507,7 +594,7 @@ export async function updateSellerOrderStatus(formData: FormData) {
         title: getSellerStatusTitle(newStatus),
         message:
           `Your order ${sellerOrder.order.orderNumber} has been updated to ${formatSellerStatus(
-            newStatus
+            newStatus,
           )}.`,
       },
     });
@@ -527,6 +614,7 @@ export async function updateSellerOrderStatus(formData: FormData) {
           newStatus,
           orderId: sellerOrder.order.id,
           sellerId: user.seller!.id,
+          paymentStatus,
         },
       },
     });
@@ -537,6 +625,7 @@ export async function updateSellerOrderStatus(formData: FormData) {
       previousStatus,
       newStatus,
       mainOrderStatus,
+      paymentStatus,
     };
   });
 
@@ -544,8 +633,11 @@ export async function updateSellerOrderStatus(formData: FormData) {
   // Revalidate affected pages
   // --------------------------------------------------
 
+  revalidatePath("/seller/orders");
   revalidatePath(`/seller/orders/${sellerOrderId}`);
-  revalidatePath(`/seller/orders`); revalidatePath("/seller/dashboard");
+  revalidatePath("/seller/dashboard");
+
+  revalidatePath("/orders");
   revalidatePath(`/orders/${result.orderId}`);
   revalidatePath(`/admin/orders/${result.orderId}`);
 

@@ -482,5 +482,5 @@ export async function placeOrder() {
   // Redirect to order page
   // ----------------------------------------------
 
-  redirect(`/checkout/payments/${order.id}`);
+redirect(`/checkout/payments/${order.id}`);
 }

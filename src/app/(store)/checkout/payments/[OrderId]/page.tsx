@@ -15,13 +15,17 @@ type PaymentPageProps = {
 export default async function PaymentPage({
     params,
 }: PaymentPageProps) {
-    const user = await getCurrentUser();
+    console.log("RAW PARAMS:", await params);
+
+    const { orderId } = await params;
+
+    console.log("ORDER ID:", orderId);
+
+    // ...
 
     if (!user) {
         redirect("/auth/login");
     }
-
-    const { orderId } = await params;
 
     const order = await prisma.order.findFirst({
         where: {

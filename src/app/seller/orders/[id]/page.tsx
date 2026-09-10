@@ -74,7 +74,7 @@ export default async function SellerOrderDetails({
 }) {
   unstable_noStore();
 
-  const { id } = await params;  
+  const { id } = await params;
 
   const user = await getCurrentUser();
 
