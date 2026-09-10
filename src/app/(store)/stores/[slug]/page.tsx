@@ -39,7 +39,7 @@ export default async function StorePage({
 					<p className="text-sm text-slate-400">STORE</p>
 					<h1 className="mt-2 text-5xl font-black">{store.name}</h1>
 					<p className="mt-4 max-w-2xl text-slate-300">
-						{store.description ?? "An independent store on MarketHub."}
+						{store.description ?? "An independent store on Bazario."}
 					</p>
 				</div>
 			</section>

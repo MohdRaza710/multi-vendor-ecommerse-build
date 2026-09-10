@@ -19,11 +19,11 @@ export default async function RegisterPage({
         </p>
 
         <h1 className="mt-2 text-3xl font-black">
-          Join MarketHub
+          Join Bazario
         </h1>
 
         <p className="mt-2 text-sm text-slate-500">
-          Choose how you want to use MarketHub.
+          Choose how you want to use Bazario.
         </p>
 
         {/* Account Type */}

@@ -6,8 +6,8 @@ const geist = Geist({ variable: "--font-geist", subsets: ["latin"] });
 
 export const metadata: Metadata = {
 	title: {
-		default: "MarketHub — Multi-vendor marketplace",
-		template: "%s | MarketHub",
+		default: "Bazario — Multi-vendor marketplace",
+		template: "%s | Bazario",
 	},
 	description: "A production-style multi-vendor marketplace.",
 };

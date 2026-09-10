@@ -10,9 +10,9 @@ export default async function Header() {
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 lg:px-6">
         <Link href="/" className="flex items-center gap-2 text-lg font-black tracking-tight">
           <span className="grid h-9 w-9 place-items-center rounded-xl bg-slate-950 text-white">
-            M
+            B
           </span>
-          MarketHub
+          Bazario
         </Link>
         <nav className="hidden items-center gap-7 text-sm font-medium text-slate-600 md:flex">
           <Link href="/products" className="hover:text-slate-950">Shop</Link>

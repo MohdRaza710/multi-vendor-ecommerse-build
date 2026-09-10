@@ -1,6 +1,6 @@
-# MarketHub — Multi-Vendor E-Commerce Platform
+# Bazario — Multi-Vendor E-Commerce Platform
 
-MarketHub is a production-style full-stack marketplace built with Next.js App Router, TypeScript and PostgreSQL/Prisma. It is intentionally structured as a serious practice project rather than a CRUD tutorial.
+Bazario is a production-style full-stack marketplace built with Next.js App Router, TypeScript and PostgreSQL/Prisma. It is intentionally structured as a serious practice project rather than a CRUD tutorial.
 
 ## Stack
 - Next.js App Router + Route Handlers
