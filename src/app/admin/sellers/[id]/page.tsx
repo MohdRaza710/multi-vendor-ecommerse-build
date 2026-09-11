@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Prisma } from "@prisma/client";
+import { approveSellerForm, rejectSellerForm, suspendSellerForm, reactivateSellerForm } from "@/actions/seller";
 
 import { prisma } from "@/lib/prisma";
 import { updatePayoutStatus } from "@/actions/admin-payout";
@@ -320,7 +321,7 @@ export default async function AdminSellerDetailPage({
                     </div>
 
                     <div className="flex items-center gap-4">
-                        <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl border bg-black/[0.03] text-xl font-bold">
+                        <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl border bg-black/3 text-xl font-bold">
                             {seller.logo ? (
                                 // eslint-disable-next-line @next/next/no-img-element
                                 <img
@@ -358,7 +359,7 @@ export default async function AdminSellerDetailPage({
                 <div className="flex flex-wrap gap-2">
                     <Link
                         href="/admin/sellers"
-                        className="rounded-xl border px-4 py-2.5 text-sm font-medium transition hover:bg-black/[0.03]"
+                        className="rounded-xl border px-4 py-2.5 text-sm font-medium transition hover:bg-black/3"
                     >
                         ← Back to Sellers
                     </Link>
@@ -367,10 +368,58 @@ export default async function AdminSellerDetailPage({
                         <Link
                             href={`/store/${seller.store.slug}`}
                             target="_blank"
-                            className="rounded-xl border px-4 py-2.5 text-sm font-medium transition hover:bg-black/[0.03]"
+                            className="rounded-xl border px-4 py-2.5 text-sm font-medium transition hover:bg-black/3"
                         >
                             View Store ↗
                         </Link>
+                    )}
+
+                    {(seller.status === "PENDING" || seller.status === "REJECTED") && (
+                        <form action={approveSellerForm}>
+                            <input type="hidden" name="sellerId" value={seller.id} />
+                            <button
+                                type="submit"
+                                className="rounded-xl bg-green-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-green-700"
+                            >
+                                ✓ Approve
+                            </button>
+                        </form>
+                    )}
+
+                    {seller.status === "PENDING" && (
+                        <form action={rejectSellerForm}>
+                            <input type="hidden" name="sellerId" value={seller.id} />
+                            <button
+                                type="submit"
+                                className="rounded-xl border border-red-200 px-4 py-2.5 text-sm font-semibold text-red-600 transition hover:bg-red-50"
+                            >
+                                ✗ Reject
+                            </button>
+                        </form>
+                    )}
+
+                    {seller.status === "APPROVED" && (
+                        <form action={suspendSellerForm}>
+                            <input type="hidden" name="sellerId" value={seller.id} />
+                            <button
+                                type="submit"
+                                className="rounded-xl border border-orange-200 px-4 py-2.5 text-sm font-semibold text-orange-600 transition hover:bg-orange-50"
+                            >
+                                ⊘ Suspend
+                            </button>
+                        </form>
+                    )}
+
+                    {seller.status === "SUSPENDED" && (
+                        <form action={reactivateSellerForm}>
+                            <input type="hidden" name="sellerId" value={seller.id} />
+                            <button
+                                type="submit"
+                                className="rounded-xl bg-green-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-green-700"
+                            >
+                                ↺ Reactivate
+                            </button>
+                        </form>
                     )}
                 </div>
             </div>
@@ -418,8 +467,8 @@ export default async function AdminSellerDetailPage({
                         <div className="flex flex-wrap gap-2">
                             <span
                                 className={`rounded-full px-3 py-1 text-xs font-semibold ${seller.user.isActive
-                                        ? "bg-green-100 text-green-700"
-                                        : "bg-red-100 text-red-700"
+                                    ? "bg-green-100 text-green-700"
+                                    : "bg-red-100 text-red-700"
                                     }`}
                             >
                                 {seller.user.isActive ? "Account Active" : "Account Disabled"}
@@ -427,8 +476,8 @@ export default async function AdminSellerDetailPage({
 
                             <span
                                 className={`rounded-full px-3 py-1 text-xs font-semibold ${seller.user.emailVerified
-                                        ? "bg-green-100 text-green-700"
-                                        : "bg-yellow-100 text-yellow-700"
+                                    ? "bg-green-100 text-green-700"
+                                    : "bg-yellow-100 text-yellow-700"
                                     }`}
                             >
                                 {seller.user.emailVerified
@@ -491,8 +540,8 @@ export default async function AdminSellerDetailPage({
                             <div className="flex flex-wrap gap-2">
                                 <span
                                     className={`rounded-full px-3 py-1 text-xs font-semibold ${seller.store.isActive
-                                            ? "bg-green-100 text-green-700"
-                                            : "bg-red-100 text-red-700"
+                                        ? "bg-green-100 text-green-700"
+                                        : "bg-red-100 text-red-700"
                                         }`}
                                 >
                                     {seller.store.isActive ? "Store Active" : "Store Inactive"}
@@ -698,9 +747,9 @@ export default async function AdminSellerDetailPage({
                                         </p>
                                         <p
                                             className={`font-semibold ${availableStock <=
-                                                    (product.inventory?.lowStockThreshold ?? 5)
-                                                    ? "text-orange-600"
-                                                    : ""
+                                                (product.inventory?.lowStockThreshold ?? 5)
+                                                ? "text-orange-600"
+                                                : ""
                                                 }`}
                                         >
                                             {availableStock}
@@ -1079,10 +1128,10 @@ export default async function AdminSellerDetailPage({
                             <div className="mt-4">
                                 <span
                                     className={`rounded-full px-3 py-1 text-xs font-semibold ${review.status === "APPROVED"
-                                            ? "bg-green-100 text-green-700"
-                                            : review.status === "REJECTED"
-                                                ? "bg-red-100 text-red-700"
-                                                : "bg-yellow-100 text-yellow-700"
+                                        ? "bg-green-100 text-green-700"
+                                        : review.status === "REJECTED"
+                                            ? "bg-red-100 text-red-700"
+                                            : "bg-yellow-100 text-yellow-700"
                                         }`}
                                 >
                                     {review.status}

@@ -1104,3 +1104,27 @@ export async function updateInventory(
     inventory,
   };
 }
+
+export async function approveSellerForm(formData: FormData): Promise<void> {
+  const sellerId = String(formData.get("sellerId") ?? "").trim();
+  if (!sellerId) throw new Error("Seller ID is required.");
+  await approveSeller(sellerId);
+}
+
+export async function rejectSellerForm(formData: FormData): Promise<void> {
+  const sellerId = String(formData.get("sellerId") ?? "").trim();
+  if (!sellerId) throw new Error("Seller ID is required.");
+  await rejectSeller(sellerId);
+}
+
+export async function suspendSellerForm(formData: FormData): Promise<void> {
+  const sellerId = String(formData.get("sellerId") ?? "").trim();
+  if (!sellerId) throw new Error("Seller ID is required.");
+  await suspendSeller(sellerId);
+}
+
+export async function reactivateSellerForm(formData: FormData): Promise<void> {
+  const sellerId = String(formData.get("sellerId") ?? "").trim();
+  if (!sellerId) throw new Error("Seller ID is required.");
+  await reactivateSeller(sellerId);
+}
