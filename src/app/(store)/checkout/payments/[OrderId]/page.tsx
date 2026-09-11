@@ -1,9 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { use, useEffect, useState, useTransition } from "react";  // add `use`
+import { use, useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-
 
 interface OrderItem {
     id: string;
@@ -37,9 +36,9 @@ function money(amount: number | string) {
 export default function PaymentPage({
     params,
 }: {
-    params: Promise<{ orderId: string }>;  // change to Promise
+    params: Promise<{ orderId: string }>;
 }) {
-    const { orderId } = use(params);  // unwrap with use()
+    const { orderId } = use(params);
     const router = useRouter();
     const [order, setOrder] = useState<Order | null>(null);
     const [loading, setLoading] = useState(true);
@@ -49,6 +48,11 @@ export default function PaymentPage({
     const [isPending, startTransition] = useTransition();
 
     useEffect(() => {
+        if (!orderId || orderId === "undefined") {
+            router.replace("/orders");
+            return;
+        }
+
         fetch(`/api/orders/${orderId}/payment-info`)
             .then(async (r) => {
                 const text = await r.text();
@@ -61,10 +65,7 @@ export default function PaymentPage({
                     setOrder(data);
                 }
             })
-            .catch((err) => {
-                console.error("Failed to load payment info:", err);
-                router.replace("/orders");
-            })
+            .catch(() => router.replace("/orders"))
             .finally(() => setLoading(false));
     }, [orderId, router]);
 
@@ -89,10 +90,10 @@ export default function PaymentPage({
 
         startTransition(async () => {
             try {
-                const res = await fetch(`/api/orders/${order.id}/confirm-payment`, {
-                    method: "POST",
-                });
-
+                const res = await fetch(
+                    `/api/orders/${order.id}/confirm-payment`,
+                    { method: "POST" }
+                );
                 const text = await res.text();
                 const data = text ? JSON.parse(text) : {};
 
@@ -101,8 +102,7 @@ export default function PaymentPage({
                 } else {
                     setError(data.error ?? "Payment failed. Please try again.");
                 }
-            } catch (err) {
-                console.error(err);
+            } catch {
                 setError("Something went wrong. Please try again.");
             }
         });
@@ -169,10 +169,7 @@ export default function PaymentPage({
                 <h2 className="font-bold text-slate-950">Order summary</h2>
                 <ul className="mt-4 divide-y">
                     {order.items.map((item) => (
-                        <li
-                            key={item.id}
-                            className="flex justify-between py-3 text-sm"
-                        >
+                        <li key={item.id} className="flex justify-between py-3 text-sm">
                             <div>
                                 <p className="font-medium text-slate-900">
                                     {item.productName}
@@ -217,9 +214,7 @@ export default function PaymentPage({
                         Amount (USD)
                     </label>
                     <div className="mt-2 flex items-center rounded-xl border border-slate-700 bg-slate-800 px-4 py-3">
-                        <span className="mr-2 text-lg font-bold text-slate-400">
-                            $
-                        </span>
+                        <span className="mr-2 text-lg font-bold text-slate-400">$</span>
                         <input
                             type="number"
                             step="0.01"
@@ -230,23 +225,21 @@ export default function PaymentPage({
                                 setEnteredAmount(e.target.value);
                                 setError("");
                             }}
-                            className="flex-1 bg-transparent text-lg font-mono text-white outline-none placeholder:text-slate-600"
+                            className="flex-1 bg-transparent font-mono text-lg text-white outline-none placeholder:text-slate-600"
                         />
                     </div>
                 </div>
 
                 {error && (
                     <div className="mt-4 rounded-xl border border-red-500/30 bg-red-500/10 p-4">
-                        <p className="text-sm font-semibold text-red-400">
-                            ❌ {error}
-                        </p>
+                        <p className="text-sm font-semibold text-red-400">❌ {error}</p>
                     </div>
                 )}
 
                 <button
                     onClick={handlePay}
                     disabled={isPending || !enteredAmount}
-                    className="mt-6 w-full rounded-xl bg-white py-3 font-bold text-slate-950 transition hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="mt-6 w-full rounded-xl bg-white py-3 font-bold text-slate-950 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                     {isPending ? "Processing…" : `Pay ${money(order.totalAmount)}`}
                 </button>
