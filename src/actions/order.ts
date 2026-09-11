@@ -5,7 +5,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { Prisma } from "@prisma/client";
 
-export async function placeOrder() {
+export async function placeOrder(): Promise<{ orderId: string }> {
   const user = await getCurrentUser();
 
   if (!user) {
@@ -482,7 +482,7 @@ export async function placeOrder() {
   // Redirect to order page
   // ----------------------------------------------
 
-redirect(`/checkout/payments/${order.id}`);
+return { orderId: order.id };
 }
 
 export async function confirmMockPayment(formData: FormData) {

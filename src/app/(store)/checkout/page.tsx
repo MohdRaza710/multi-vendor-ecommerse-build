@@ -2,8 +2,7 @@ import Link from "next/link";
 import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { money } from "@/lib/format";
-import { placeOrder } from "@/actions/order";
-
+import PlaceOrderButton from "@/components/checkout/PlaceOrderButton";
 export default async function CheckoutPage() {
     const user = await getCurrentUser();
 
@@ -433,14 +432,9 @@ export default async function CheckoutPage() {
                         </div>
 
                         {/* Place order */}
-                        <form action={placeOrder}>
-                            <button
-                                type="submit"
-                                className="mt-7 w-full rounded-xl bg-white py-3.5 font-black text-slate-950 transition hover:bg-slate-200 active:scale-[0.99]"
-                            >
-                                Place order
-                            </button>
-                        </form>
+                        <div className="mt-7">
+                            <PlaceOrderButton />
+                        </div>
 
                         <p className="mt-4 text-center text-xs leading-5 text-slate-500">
                             Your payment will be recorded as a mock payment
