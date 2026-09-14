@@ -3,6 +3,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { money } from "@/lib/format";
 import PlaceOrderButton from "@/components/checkout/PlaceOrderButton";
+
 export default async function CheckoutPage() {
     const user = await getCurrentUser();
 
