@@ -6,7 +6,7 @@ export default function Footer() {
     return (
         <footer className="border-t bg-white">
             <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-4 px-6 py-6 sm:flex-row">
-                <div className="text-sm text-gray-600">
+                <div className="text-sm text-gray-600 items-start justify-start">
                     © {new Date().getFullYear()}{" "}
                     <span className="font-semibold text-gray-900">Bazario Market</span>
                     {" · "}
@@ -14,7 +14,7 @@ export default function Footer() {
 
                 <span className="font-medium text-gray-900 text-center items-center justify-center">Build By Mohammed Raza</span>
 
-                <div className="flex items-center gap-4">
+                <div className="flex items-end justify-end gap-4">
 
                     <Link
                         href="https://  www.linkedin.com/in/mohammed-raza-92aaa4398"
