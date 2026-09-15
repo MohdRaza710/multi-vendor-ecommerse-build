@@ -148,25 +148,25 @@ export default async function AdminDashboard() {
                         <Row
                             label="Products"
                             value={products}
-                            href="/admin/products"
+                            href=""
                         />
 
                         <Row
                             label="Sellers"
                             value={sellers}
-                            href="/admin/sellers"
+                            href=""
                         />
 
                         <Row
                             label="Customers"
                             value={customers}
-                            href="/admin/users"
+                            href=""
                         />
 
                         <Row
                             label="Orders"
                             value={orders}
-                            href="/admin/orders"
+                            href="  "
                         />
                     </div>
                 </section>
@@ -235,23 +235,12 @@ export default async function AdminDashboard() {
                     />
 
                     <QuickAction
-                        title="Manage Products"
-                        description="Review and manage marketplace products."
-                        href="/admin/products"
-                    />
-
-                    <QuickAction
                         title="Manage Orders"
                         description="View and manage all platform orders."
                         href="/admin/orders"
                     />
 
-                    <QuickAction
-                        title="Manage Users"
-                        description="View and manage customer accounts."
-                        href="/admin/users"
-                    />
-                    <Link
+                    {/* <Link
                         href="/admin/seller-reviews"
                         className="group rounded-2xl border bg-white p-5 transition hover:-translate-y-1 hover:shadow-lg"
                     >
@@ -274,7 +263,7 @@ export default async function AdminDashboard() {
                         <div className="mt-4 text-sm font-medium">
                             Manage reviews →
                         </div>
-                    </Link>
+                    </Link> */}
                 </div>
             </section>
 
